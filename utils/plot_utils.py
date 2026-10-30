@@ -139,116 +139,6 @@ def plot_opt_res(res_folder, seeds, model_name, dataset_name, log_scale=False, s
     return
 
 
-def plot_opt_res_time(res_folder, seeds, model_name, dataset_name, log_scale=False, show_legend=True, nsteps=None,
-                 add_es=False, clean_id=""):
-    fig, axs = plt.subplots(figsize=(3, 5), nrows=2, ncols=1, sharex=True)
-
-    styles = ['-', '--', '-.', ':', (0, (5, 1)), (0, (5, 5)), (0, (1, 1)), (0, (1, 5))]
-    colors = ['tab:blue', 'tab:orange', 'tab:green', 'tab:red', 'tab:purple', 'tab:blue']
-    st_i = 0
-
-    optimizers = ['gd', 'adam', 'muon', 'sophia', 'sophiac']
-    for opt in optimizers:
-        for use_pc in [True, False]:
-            pc_id = "_pc" if use_pc else ""
-
-            if opt != 'gd' and use_pc:
-                continue # preconditioning is applied only for GD
-
-            for use_blocks in [False, True]:
-                if not use_pc and use_blocks:
-                    continue  # blocks only make sense when using preconditioner
-
-                if opt == "gd" and use_pc and not use_blocks:
-                    continue  # the preconditioner is always applied with blocks
-
-                blocks_id = "_blocks" if use_blocks else ""
-                filename = f"results_{opt}{pc_id}{blocks_id}{clean_id}.npz"
-
-                train_losses, test_losses = [], []
-                es_stats = []
-                walltimes = []
-                for seed in seeds:
-                    res_path = os.path.join(res_folder, f"{seed}", filename)
-                    if os.path.exists(res_path):
-                        data = np.load(res_path)
-                        train_losses.append(data['train_losses'])
-                        test_losses.append(data['test_losses'])
-                        walltimes.append(data['wall_time'])
-
-                        if add_es and 'es_stats' in data:
-                            es_stats.append(data['es_stats'])
-
-                train_losses = np.array(train_losses)
-                test_losses = np.array(test_losses)
-                walltimes = np.array(walltimes)
-                label = get_label(opt, pc_id, blocks_id)
-
-                if len(train_losses) < len(seeds) or len(test_losses) < len(seeds) or len(walltimes) < len(seeds):
-                    print(f"!!! Missing results for {label} for some seeds."
-                          f" Averaging over {len(train_losses)} seeds instead of {len(seeds)}.")
-
-                if len(train_losses) > 0 and len(test_losses) > 0 and len(walltimes) > 0:
-                    walltimes_cum = np.mean(np.cumsum(walltimes, axis=1), axis=0)
-
-                    if nsteps is not None and train_losses.shape[1] > nsteps:
-                        # option to plot less steps to make the plots more informative
-                        train_losses = train_losses[:, :nsteps]
-                        test_losses = test_losses[:, :nsteps]
-                        walltimes_cum = walltimes_cum[:, :nsteps]
-
-                    train_mean = np.mean(train_losses, axis=0)
-                    test_mean = np.mean(test_losses, axis=0)
-                    axs[0].plot(walltimes_cum, train_mean, label=label, linestyle=styles[st_i], color=colors[st_i])
-                    axs[1].plot(walltimes_cum, test_mean, label=label, linestyle=styles[st_i], color=colors[st_i])
-
-                    # plot standard deviation as shaded area
-                    train_std = np.std(train_losses, axis=0)
-                    test_std = np.std(test_losses, axis=0)
-                    axs[0].fill_between(walltimes_cum, train_mean - train_std, train_mean + train_std, alpha=0.2, color=colors[st_i])
-                    axs[1].fill_between(walltimes_cum, test_mean - test_std, test_mean + test_std, alpha=0.2, color=colors[st_i])
-
-                    if len(es_stats) > 0:
-                        es_stats = np.array(es_stats)
-
-                        # Find the first increase in the statistics
-                        diff = np.diff(es_stats, axis=1)
-                        mask = diff > 0  # True where value increases
-                        has_increase = mask.any(axis=1)  # (10,) bool
-                        stopping_points = np.where(has_increase, np.argmax(mask, axis=1), -1)
-                        p = np.median(stopping_points)
-                        p_std = np.std(stopping_points)
-                        if clean_id != "":
-                            label_es = "GradStop"
-                            color_es = "blue"
-                        else:
-                            label_es = "Stop. point (ours)"
-                            color_es = 'red'
-                        axs[1].axvline(x=p, color=color_es, linestyle='--', linewidth=1.5, label=label_es, markersize=4)
-                        axs[1].axvspan(np.maximum(p - p_std, 0), p + p_std, alpha=0.2, color=color_es)
-                        plt.legend()
-
-                    if log_scale:
-                        axs[0].set_yscale('log', base=2)
-                        axs[1].set_yscale('log', base=2)
-
-                st_i += 1  ## keep the counter for styles
-
-    axs[1].set_xlabel("Wallclock time (s)")
-    axs[0].set_ylabel("Loss")
-    axs[1].set_ylabel("Test Loss")
-    if show_legend:
-        axs[1].legend(fontsize=9, loc='upper right')
-
-    fig.suptitle(f"{model_name} on {dataset_name}")
-    fig.tight_layout()
-
-    if os.path.exists(res_folder):
-        fig.savefig(os.path.join(res_folder, f"opt_{model_name}_{dataset_name}{clean_id}_time.pdf"))
-    fig.show()
-    return
-
-
 def get_test_loss_th(res_folder, seeds, th=0.9, filename="results_gd_pc_blocks.npz"):
     test_losses = []
     for seed in seeds:
@@ -533,7 +423,7 @@ def load_es_stats(res_folder, filename, seeds):
     return es_stats, test_losses, train_losses
 
 
-def get_label(opt: str, pc_id: str, blocks_id: str, ggn_id:str=None) -> str:
+def get_label(opt: str, pc_id: str, blocks_id: str, ggn_id:str="") -> str:
     label = str(opt).capitalize() if opt != "gd" else "GD"
     if opt == "sophia":
         label = "SophiaG"
